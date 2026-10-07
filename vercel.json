@@ -1,0 +1,11 @@
+{
+  "buildCommand": "cd nextstep-root/frontend && npm install && npm run build",
+  "outputDirectory": "nextstep-root/frontend/dist",
+  "framework": "vite",
+  "rewrites": [
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
+    }
+  ]
+}
