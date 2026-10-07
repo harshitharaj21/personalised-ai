@@ -28,17 +28,19 @@ const OnboardingRoute = ({ children }) => {
 };
 
 const DashboardRoute = ({ children }) => {
-  const { isAuthenticated, loading, isOnboarded, hasProfile } = useAuth();
+  const { isAuthenticated, loading, isOnboarded } = useAuth();
   if (loading) return <LoadingScreen />;
   if (!isAuthenticated) return <Navigate to="/login" replace />;
-  if (isAuthenticated && !isOnboarded && hasProfile) return <Navigate to="/onboarding" replace />;
+  if (!isOnboarded) return <Navigate to="/onboarding" replace />;
   return children;
 };
 
 const PublicRoute = ({ children }) => {
-  const { isAuthenticated, loading } = useAuth();
+  const { isAuthenticated, loading, isOnboarded } = useAuth();
   if (loading) return <LoadingScreen />;
-  if (isAuthenticated) return <Navigate to="/dashboard" replace />;
+  if (isAuthenticated) {
+    return <Navigate to={isOnboarded ? "/dashboard" : "/onboarding"} replace />;
+  }
   return children;
 };
 

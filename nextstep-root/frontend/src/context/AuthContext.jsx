@@ -17,36 +17,64 @@ export const AuthProvider = ({ children }) => {
   const [loading, setLoading] = useState(true);
 
   const getToken = useCallback(async () => {
-    const { data } = await supabase.auth.getSession();
-    return data?.session?.access_token || null;
-  }, []);
-
-  const loadProfile = useCallback(async (supabaseUser, accessToken) => {
-    if (!supabaseUser || !accessToken) return;
     try {
-      const result = await syncUser(accessToken, supabaseUser.user_metadata?.full_name || supabaseUser.email, supabaseUser.email);
-      if (result?.profile) setProfile(result.profile);
-    } catch (err) {
-      console.error('Profile load error:', err);
+      const { data } = await supabase.auth.getSession();
+      return data?.session?.access_token || null;
+    } catch (e) {
+      return null;
     }
   }, []);
 
+  const loadProfile = useCallback(async (supabaseUser, accessToken) => {
+    if (!supabaseUser) return;
+    try {
+      if (accessToken) {
+        const result = await syncUser(
+          accessToken,
+          supabaseUser.user_metadata?.full_name || supabaseUser.email?.split('@')[0] || 'Candidate',
+          supabaseUser.email
+        );
+        if (result?.profile) {
+          setProfile(result.profile);
+          return;
+        }
+      }
+    } catch (err) {
+      console.warn('Backend profile sync warning (falling back to auth session):', err.message);
+    }
+
+    // Resilient fallback profile so student is never stuck
+    setProfile((prev) => prev || {
+      id: supabaseUser.id,
+      email: supabaseUser.email,
+      full_name: supabaseUser.user_metadata?.full_name || supabaseUser.email?.split('@')[0] || 'Candidate',
+      daily_capacity_minutes: null,
+      current_streak: 0,
+    });
+  }, []);
+
   useEffect(() => {
+    let mounted = true;
+
     // Get initial session
     supabase.auth.getSession().then(({ data: { session } }) => {
+      if (!mounted) return;
       setSession(session);
       setUser(session?.user ?? null);
-      if (session?.user && session?.access_token) {
+      if (session?.user) {
         loadProfile(session.user, session.access_token);
       }
       setLoading(false);
+    }).catch(() => {
+      if (mounted) setLoading(false);
     });
 
     // Subscribe to auth state changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (!mounted) return;
       setSession(session);
       setUser(session?.user ?? null);
-      if (session?.user && session?.access_token) {
+      if (session?.user) {
         await loadProfile(session.user, session.access_token);
       } else {
         setProfile(null);
@@ -54,7 +82,10 @@ export const AuthProvider = ({ children }) => {
       setLoading(false);
     });
 
-    return () => subscription.unsubscribe();
+    return () => {
+      mounted = false;
+      subscription?.unsubscribe();
+    };
   }, [loadProfile]);
 
   const register = async (email, password, fullName) => {
@@ -64,17 +95,29 @@ export const AuthProvider = ({ children }) => {
       options: { data: { full_name: fullName } },
     });
     if (error) throw error;
+    if (data?.session?.user) {
+      setUser(data.session.user);
+      setSession(data.session);
+      await loadProfile(data.session.user, data.session.access_token);
+    }
     return data;
   };
 
   const login = async (email, password) => {
     const { data, error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) throw error;
+    if (data?.session?.user) {
+      setUser(data.session.user);
+      setSession(data.session);
+      await loadProfile(data.session.user, data.session.access_token);
+    }
     return data;
   };
 
   const logout = async () => {
-    await supabase.auth.signOut();
+    try {
+      await supabase.auth.signOut();
+    } catch (_) {}
     setUser(null);
     setSession(null);
     setProfile(null);
@@ -82,7 +125,7 @@ export const AuthProvider = ({ children }) => {
 
   const refreshProfile = useCallback(async () => {
     const token = await getToken();
-    if (user && token) await loadProfile(user, token);
+    if (user) await loadProfile(user, token);
   }, [user, getToken, loadProfile]);
 
   const value = {

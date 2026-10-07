@@ -1,13 +1,13 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { Mail, Lock, ArrowRight, Eye, EyeOff, Zap } from 'lucide-react';
+import { Mail, Lock, ArrowRight, Eye, EyeOff, Zap, AlertCircle } from 'lucide-react';
 
 const DEMO_EMAIL = 'demo@nextstep.ai';
-const DEMO_PASSWORD = 'nextstep2026';
+const DEMO_PASSWORD = 'password123';
 
 export default function LoginPage() {
-  const { login } = useAuth();
+  const { login, register } = useAuth();
   const navigate = useNavigate();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -20,10 +20,17 @@ export default function LoginPage() {
     setError('');
     setLoading(true);
     try {
-      await login(email, password);
+      await login(email.trim(), password);
       navigate('/dashboard');
     } catch (err) {
-      setError(err.message || 'Invalid email or password.');
+      const msg = err.message?.toLowerCase() || '';
+      if (msg.includes('invalid login credentials') || msg.includes('invalid_credentials')) {
+        setError('Incorrect email or password. Please verify your details or sign up for a new account.');
+      } else if (msg.includes('email not confirmed')) {
+        setError('Please check your inbox to confirm your email before signing in, or use Quick Demo Login.');
+      } else {
+        setError(err.message || 'Login failed. Please check your credentials.');
+      }
     } finally {
       setLoading(false);
     }
@@ -35,10 +42,24 @@ export default function LoginPage() {
     setError('');
     setLoading(true);
     try {
-      await login(DEMO_EMAIL, DEMO_PASSWORD);
+      try {
+        await login(DEMO_EMAIL, DEMO_PASSWORD);
+      } catch (loginErr) {
+        // If demo user does not exist in Supabase yet, automatically provision it!
+        if (
+          loginErr.message?.toLowerCase().includes('invalid login') ||
+          loginErr.message?.toLowerCase().includes('invalid_credentials') ||
+          loginErr.message?.toLowerCase().includes('user not found')
+        ) {
+          await register(DEMO_EMAIL, DEMO_PASSWORD, 'Demo Candidate');
+          await login(DEMO_EMAIL, DEMO_PASSWORD);
+        } else {
+          throw loginErr;
+        }
+      }
       navigate('/dashboard');
     } catch (err) {
-      setError('Demo account not available. Please register first.');
+      setError(err.message || 'Demo login encountered an issue. Please try signing up with your email.');
     } finally {
       setLoading(false);
     }
@@ -46,12 +67,12 @@ export default function LoginPage() {
 
   return (
     <div className="min-h-screen bg-surface-900 bg-grid flex items-center justify-center p-4">
-      {/* Background orbs */}
-      <div className="fixed top-1/4 left-1/4 w-96 h-96 bg-brand-600/8 rounded-full blur-3xl pointer-events-none" />
-      <div className="fixed bottom-1/4 right-1/4 w-64 h-64 bg-accent-500/8 rounded-full blur-3xl pointer-events-none" />
+      {/* Background ambient orbs */}
+      <div className="fixed top-1/4 left-1/4 w-96 h-96 bg-brand-600/10 rounded-full blur-3xl pointer-events-none" />
+      <div className="fixed bottom-1/4 right-1/4 w-64 h-64 bg-accent-500/10 rounded-full blur-3xl pointer-events-none" />
 
       <div className="w-full max-w-md animate-slide-up">
-        {/* Logo */}
+        {/* Logo & Header */}
         <div className="text-center mb-8">
           <Link to="/" className="inline-flex items-center gap-2.5 mb-6">
             <div className="relative">
@@ -63,21 +84,22 @@ export default function LoginPage() {
             <span className="text-xl font-bold text-white">NextStep</span>
           </Link>
           <h1 className="text-2xl font-bold text-white mb-1">Welcome back</h1>
-          <p className="text-slate-400 text-sm">Continue your DSA journey</p>
+          <p className="text-slate-400 text-sm">Continue your personalised DSA placement journey</p>
         </div>
 
         {/* Form card */}
         <div className="glass-card p-6 mb-4">
           <form onSubmit={handleSubmit} className="space-y-4">
             {error && (
-              <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-xl text-sm text-red-300 animate-fade-in">
-                {error}
+              <div className="p-3.5 bg-red-500/10 border border-red-500/25 rounded-xl text-sm text-red-300 flex items-start gap-2.5 animate-fade-in">
+                <AlertCircle size={17} className="text-red-400 flex-shrink-0 mt-0.5" />
+                <span className="leading-relaxed">{error}</span>
               </div>
             )}
 
             <div>
               <label htmlFor="login-email" className="block text-sm font-medium text-slate-300 mb-1.5">
-                Email
+                Email Address
               </label>
               <div className="relative">
                 <Mail size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-500" />
@@ -89,6 +111,7 @@ export default function LoginPage() {
                   placeholder="you@example.com"
                   required
                   className="input-field pl-10"
+                  autoComplete="email"
                 />
               </div>
             </div>
@@ -107,11 +130,13 @@ export default function LoginPage() {
                   placeholder="••••••••"
                   required
                   className="input-field pl-10 pr-10"
+                  autoComplete="current-password"
                 />
                 <button
                   type="button"
                   onClick={() => setShowPass(!showPass)}
                   className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300"
+                  aria-label={showPass ? 'Hide password' : 'Show password'}
                 >
                   {showPass ? <EyeOff size={16} /> : <Eye size={16} />}
                 </button>
@@ -122,7 +147,7 @@ export default function LoginPage() {
               id="login-submit"
               type="submit"
               disabled={loading}
-              className="btn-primary w-full mt-2"
+              className="btn-primary w-full mt-2 justify-center"
             >
               {loading ? (
                 <span className="flex items-center gap-2">
@@ -130,7 +155,10 @@ export default function LoginPage() {
                   Signing in...
                 </span>
               ) : (
-                <>Sign In <ArrowRight size={16} /></>
+                <>
+                  Sign In
+                  <ArrowRight size={16} />
+                </>
               )}
             </button>
           </form>
@@ -140,25 +168,26 @@ export default function LoginPage() {
               <div className="w-full border-t border-white/10" />
             </div>
             <div className="relative flex justify-center">
-              <span className="px-3 bg-surface-700 text-xs text-slate-500 rounded">or</span>
+              <span className="px-3 bg-surface-800 text-xs text-slate-500 rounded">or</span>
             </div>
           </div>
 
           <button
             id="demo-login"
+            type="button"
             onClick={handleDemo}
             disabled={loading}
-            className="btn-secondary w-full gap-2"
+            className="btn-secondary w-full gap-2 justify-center"
           >
-            <Zap size={16} className="text-brand-400" />
-            Quick Demo Login
+            <Zap size={16} className="text-amber-400" />
+            Quick Demo Login (1-Click)
           </button>
         </div>
 
         <p className="text-center text-sm text-slate-500">
           Don't have an account?{' '}
-          <Link to="/register" className="text-brand-400 hover:text-brand-300 font-medium transition-colors">
-            Sign up free
+          <Link to="/register" className="text-brand-400 hover:text-brand-300 font-semibold transition-colors">
+            Create account free
           </Link>
         </p>
       </div>
